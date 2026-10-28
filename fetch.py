@@ -1,7 +1,8 @@
 """
 fetch.py — finds a recipe for every dish in Supabase that doesn't have one yet.
 
-Order tried for each dish:
+If a dish has its own recipe link (recipe_url), that page is read first.
+Otherwise, order tried for each dish:
   1. Hebbar's Kitchen   2. Swasthi's Recipes   3. Archana's Kitchen
   4. Ruchik Randhap     5. TheMealDB (free API)
 
@@ -164,6 +165,7 @@ def scrape(site_name: str, url: str):
     r = get(url)
     if not r:
         return None
+    url = r.url  # follow redirects to the page's current address
     try:
         s = scrape_html(r.text, org_url=url, supported_only=False)
     except Exception as e:
@@ -220,7 +222,21 @@ def from_mealdb(query: str):
     }
 
 
-def find_recipe(dish_name: str):
+def site_name_for(url: str) -> str:
+    host = urlparse(url).netloc.lower()
+    for site in SITES:
+        if site["host"] in host:
+            return site["name"]
+    return host.replace("www.", "")
+
+
+def find_recipe(dish_name: str, recipe_url: str = None):
+    # A dish with its own recipe link is read straight from that page first.
+    if recipe_url:
+        recipe = scrape(site_name_for(recipe_url), recipe_url)
+        if recipe:
+            return recipe
+        print(f"    could not read {recipe_url}, searching instead")
     query = search_term(dish_name)
     for site in SITES:
         for link in candidate_links(site, query):
@@ -233,7 +249,7 @@ def find_recipe(dish_name: str):
 # ---------- Supabase ----------
 
 def dishes_without_recipe() -> list:
-    dishes = requests.get(f"{SB_URL}/rest/v1/dishes?select=id,name&order=id", headers=SB, timeout=30)
+    dishes = requests.get(f"{SB_URL}/rest/v1/dishes?select=id,name,recipe_url&order=id", headers=SB, timeout=30)
     dishes.raise_for_status()
     have = requests.get(f"{SB_URL}/rest/v1/recipes?select=dish_id", headers=SB, timeout=30)
     have.raise_for_status()
@@ -258,7 +274,7 @@ def main():
     found, missing = 0, []
     for d in todo:
         print(f"- {d['name']}")
-        recipe = find_recipe(d["name"])
+        recipe = find_recipe(d["name"], d.get("recipe_url"))
         if recipe:
             save(d["id"], recipe)
             found += 1
