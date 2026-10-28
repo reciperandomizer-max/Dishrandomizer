@@ -2,7 +2,8 @@
 fetch.py — finds a recipe for every dish in Supabase that doesn't have one yet.
 
 Order tried for each dish:
-  1. Hebbar's Kitchen   2. Swasthi's Recipes   3. Archana's Kitchen   4. TheMealDB (free API)
+  1. Hebbar's Kitchen   2. Swasthi's Recipes   3. Archana's Kitchen
+  4. Ruchik Randhap     5. TheMealDB (free API)
 
 Saves title, picture link, description, servings, times, ingredients and steps,
 plus the source name and link, into the `recipes` table.
@@ -61,6 +62,14 @@ SITES = [
             "https://www.archanaskitchen.com/search?search={q}",
         ],
     },
+    {
+        "name": "Ruchik Randhap",
+        "host": "ruchikrandhap.com",
+        "search": [
+            "https://www.ruchikrandhap.com/wp-json/wp/v2/search?search={q}&per_page=10",
+            "https://www.ruchikrandhap.com/?s={q}",
+        ],
+    },
 ]
 
 # Link paths that are never a single recipe page
@@ -82,7 +91,13 @@ def search_term(dish_name: str) -> str:
 
 
 def words(text: str) -> set:
-    return {w for w in re.findall(r"[a-z]+", text.lower()) if w not in STOP_WORDS and len(w) > 1}
+    """Lower-case words, with a plural 's' dropped so 'sannas' matches 'sanna'."""
+    out = set()
+    for w in re.findall(r"[a-z]+", text.lower()):
+        if w in STOP_WORDS or len(w) < 2:
+            continue
+        out.add(w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w)
+    return out
 
 
 def get(url: str, **kw):
