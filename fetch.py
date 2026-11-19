@@ -246,10 +246,78 @@ def find_recipe(dish_name: str, recipe_url: str = None):
     return from_mealdb(query)
 
 
+# ---------- Kannada ----------
+# Translates ingredients and method into Kannada (free Google Translate) for recipes
+# that don't have a Kannada copy yet. A batch per run; the rest follow on later runs.
+
+KN_PER_RUN = 40
+KN_CHUNK = 4000          # characters sent at a time
+
+
+def _gtranslate(text: str) -> str:
+    r = requests.get(
+        "https://translate.googleapis.com/translate_a/single",
+        params={"client": "gtx", "sl": "en", "tl": "kn", "dt": "t", "q": text},
+        headers=WEB, timeout=30,
+    )
+    time.sleep(PAUSE)
+    r.raise_for_status()
+    return "".join(seg[0] for seg in r.json()[0] if seg and seg[0])
+
+
+def to_kannada(lines: list) -> list:
+    """One Kannada line for each English line."""
+    lines = [" ".join(str(x).split()) for x in lines]
+    out, chunk = [], []
+
+    def flush():
+        if not chunk:
+            return
+        got = _gtranslate("\n".join(chunk)).split("\n")
+        if len(got) != len(chunk):          # line breaks got merged: do these one by one
+            got = [_gtranslate(x) for x in chunk]
+        out.extend(g.strip() for g in got)
+        chunk.clear()
+
+    for line in lines:
+        if chunk and len("\n".join(chunk + [line])) > KN_CHUNK:
+            flush()
+        chunk.append(line)
+    flush()
+    return out
+
+
+def translate_pending():
+    r = requests.get(
+        f"{SB_URL}/rest/v1/recipes?select=dish_id,ingredients,instructions"
+        f"&ingredients_kn=is.null&order=dish_id&limit={KN_PER_RUN}",
+        headers=SB, timeout=30,
+    )
+    r.raise_for_status()
+    rows = r.json()
+    print(f"\n{len(rows)} recipe(s) to translate into Kannada this run.")
+    done = 0
+    for row in rows:
+        try:
+            body = {
+                "ingredients_kn": to_kannada(row["ingredients"] or []),
+                "instructions_kn": to_kannada(row["instructions"] or []),
+            }
+        except Exception as e:
+            print(f"    ! translation stopped: {e} (the rest will be tried next run)")
+            break
+        u = requests.patch(f"{SB_URL}/rest/v1/recipes?dish_id=eq.{row['dish_id']}",
+                           headers={**SB, "Prefer": "return=minimal"}, json=body, timeout=30)
+        u.raise_for_status()
+        done += 1
+    print(f"Translated {done}.")
+
+
 # ---------- Supabase ----------
 
 def dishes_without_recipe() -> list:
-    dishes = requests.get(f"{SB_URL}/rest/v1/dishes?select=id,name,recipe_url&order=id", headers=SB, timeout=30)
+    # Removed dishes (hidden) are skipped.
+    dishes = requests.get(f"{SB_URL}/rest/v1/dishes?select=id,name,recipe_url&hidden=eq.false&order=id", headers=SB, timeout=30)
     dishes.raise_for_status()
     have = requests.get(f"{SB_URL}/rest/v1/recipes?select=dish_id", headers=SB, timeout=30)
     have.raise_for_status()
@@ -285,6 +353,7 @@ def main():
     print(f"\nDone. Saved {found}, not found {len(missing)}.")
     if missing:
         print("Not found: " + ", ".join(missing))
+    translate_pending()
 
 
 if __name__ == "__main__":
