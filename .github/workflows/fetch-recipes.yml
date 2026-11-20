@@ -1,8 +1,16 @@
 name: Fetch recipes
 
-# Runs only when you click "Run workflow" on the Actions tab.
+# Runs by itself every 30 minutes (to pick up newly added dishes),
+# and whenever you click "Run workflow" on the Actions tab.
 on:
+  schedule:
+    - cron: "*/30 * * * *"
   workflow_dispatch:
+
+# Never run two fetches at the same time.
+concurrency:
+  group: fetch-recipes
+  cancel-in-progress: false
 
 jobs:
   fetch:
@@ -15,5 +23,5 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python fetch.py
         env:
-          SUPABASE_URL: ${{secrets.SUPABASE_URL}}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
