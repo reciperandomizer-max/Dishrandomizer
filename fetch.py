@@ -230,6 +230,23 @@ def site_name_for(url: str) -> str:
     return host.replace("www.", "")
 
 
+# Words that describe a style of dish rather than the dish itself. A found recipe
+# must contain every OTHER word of the dish name (in its link or title), so
+# "Egg coconut curry" can no longer be matched to a tomato curry just for "curry".
+GENERIC = {
+    "curry", "masala", "fry", "stir", "sukka", "sukhe", "gravy", "dry", "style",
+    "palya", "poriyal", "sabzi", "bhaji", "upkari", "mangalorean", "konkani", "goan",
+    "kerala", "south", "indian", "easy", "simple", "quick", "homemade", "plain",
+}
+
+
+def good_match(dish_name: str, url: str, title: str) -> bool:
+    want = words(search_term(dish_name))
+    have = words(urlparse(url or "").path) | words(title or "")
+    key = want - GENERIC
+    return key <= have if key else bool(want & have)
+
+
 def find_recipe(dish_name: str, recipe_url: str = None):
     # A dish with its own recipe link is read straight from that page first.
     if recipe_url:
@@ -241,9 +258,14 @@ def find_recipe(dish_name: str, recipe_url: str = None):
     for site in SITES:
         for link in candidate_links(site, query):
             recipe = scrape(site["name"], link)
-            if recipe:
+            if recipe and good_match(dish_name, recipe["source_url"], recipe["title"]):
                 return recipe
-    return from_mealdb(query)
+            if recipe:
+                print(f"    skipped {link} (doesn't match the dish name)")
+    recipe = from_mealdb(query)
+    if recipe and good_match(dish_name, "", recipe["title"]):
+        return recipe
+    return None
 
 
 # ---------- Kannada ----------
